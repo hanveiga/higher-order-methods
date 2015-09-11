@@ -12,12 +12,14 @@ def make_movie(a_evolution, xaxis):
 
 	fig = plt.figure()
 	l, = plt.plot([], [], 'k-o')
+	ax = fig.gca()
+	ax.set_autoscale_on(False)
 
 	print len(a_evolution[0])
 	print len(xaxis)
 	with writer.saving(fig, "writer_test.mp4", 100):
 	    for step in a_evolution:
-	    	plt.plot(xaxis, step[1:-1])
+	    	plt.plot(xaxis, step)
 	    	writer.grab_frame()
 	    	#plt.show()
 	    	plt.clf()
