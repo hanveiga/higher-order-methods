@@ -24,12 +24,11 @@ class Flux(object):
 class InitialConditions(object):
 	def __init__(self, x):
 		self.x = x
+		self.Lx = self.x[len(self.x)-1] - self.x[0]
+		self.xmid = 0.5*((self.x[len(self.x)-1])+self.x[0])
 
 	def get_gaussian_IC(self):
-		Lx = self.x[len(self.x)-1] - self.x[0]
-		xmid = 0.5*(self.x[len(self.x)-1])+self.x[0]
-
-		u0 = np.exp(-20*(self.x-xmid)**2)
+		u0 = np.exp(-20*(self.x-self.xmid)**2)
 
 		return u0
 
@@ -37,14 +36,13 @@ class InitialConditions(object):
 		u0 = 1 - np.sin(np.pi * self.x) 
 		return u0
 
-def commonIC(x):
-	Lx = x(len(x)-1) - x(0)
-	xmid = 0.5*(x(len(x)-1)+x(0))
-
-	#u0 = np.sin(np.pi * x)
-	u0 = np.exp(-20*(x-xmid)**2)
-
-	return u0
+	def get_riemann_IC(self):
+		u0 = np.ones(len(self.x))
+		indices = [ indx for indx,x in enumerate(self.x) if x <=self.xmid]
+		print indices
+		for indx in indices:
+			u0[indx] = 2
+		return u0
 
 def run():
 	Nx = 100
@@ -56,7 +54,7 @@ def run():
 
 	x = np.linspace(xmin,xmax,Nx)
 
-	u0 = InitialConditions(x).get_gaussian_IC()
+	u0 = InitialConditions(x).get_sin_IC()
 
 	t = 0
 
@@ -137,7 +135,7 @@ def WENO5resAdv1d(w, flux, dflux, S, dx):
 
 	# Left Flux 
 	# Choose the negative fluxes, 'u', to compute the left cell boundary flux:
-	#% $u_{i-1/2}^{+}$ 
+	# $u_{i-1/2}^{+}$ 
 	umm =  np.roll(u,2)
 	um  =  np.roll(u,1)
 	up  =  np.roll(u,-1)
