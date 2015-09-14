@@ -70,12 +70,12 @@ def BuildMaps1D(K, Np, Nfaces, Nfp, Fmask, EToE, EToF, x, NODETOL):
 	vmapB = vmapM[mapB]
 	
 	# Create specific left (inflow) and right (outflow) maps
-	mapI = 1
-	mapO = K*Nfaces
-	vmapI = 1
-	vmapO = K*Np
+	mapI = 0
+	mapO = K*Nfaces-1
+	vmapI = 0
+	vmapO = K*Np-1
 
-	return vmapM, vmapP, vmapB, mapB, mapI, mapO, vmapI, vmapO
+	return vmapM, vmapP, vmapB, mapB, vmapI, vmapO, mapI, mapO
 
 
 def JacobiGL(alpha, beta, N):
@@ -89,11 +89,12 @@ def JacobiGL(alpha, beta, N):
 		x[1]=1.0;
 		return x
 
-	xint , w = JacobiGQ(alpha+1,beta+1,N-1);
-
+	xint = JacobiGQ(alpha+1,beta+1,N-2);
+	xint.sort()
 	x[0] = -1
 	for i in np.arange(0,len(xint)):
-		x[i+1] = xint[i-1]
+		print x[i]
+		x[i+1] = xint[i]
 	x[len(x)-1] = 1
 
 	
@@ -108,37 +109,31 @@ def JacobiGQ(alpha, beta, N):
 	w = []
 
 	if N==0:
-		x[0]=(alpha-beta)/(alpha+beta+2)
+		x[0]=-(alpha-beta)/(alpha+beta+2)
 		w[0] = 2
 		return x, w
 
 	# Form symmetric matrix from recurrence.
 	J = np.zeros(N+1);
-	h1 = [2*indx + alpha+beta for indx in range(0,N)]
-	J = np.diag([-1/2.*(alpha^2-beta^2)/float((h11+2))/float(h11) for h11 in h1]) + \
-		np.diag([2./float((h11+2))*np.sqrt(h11*(h11+alpha+beta)* (h11+alpha)*(h11+beta)/float((h11+1))/float((h11+3))) for h11 in h1[1:N]],1)
+	h1 = [2*indx + alpha+beta for indx in range(0,N+1)]
+	print h1
 
-	#diag([2./(h1(1:N)+2).*sqrt((1:N).*((1:N)+alpha+beta).*... #upper diagonal, b_i
-	#((1:N)+alpha).*((1:N)+beta)./(h1(1:N)+1)./(h1(1:N)+3)),1)
-
-	#if (alpha+beta<10*eps):
-	#	J[1,1]=0.0
+	J = np.diag([-1/2.*(alpha**2-beta**2)/float((h11+2))/float(h11) for h11 in h1]) + \
+		np.diag([2./(h1[indx]+2)*np.sqrt((indx+1)*(indx+1 + alpha+ beta)*(indx+1+alpha)*(indx+1+beta)/float(h1[indx]+1)/float(h1[indx]+3)) for indx in np.arange(0,N)],1)
 
 	J = J + np.transpose(J)
-
-	[V,D] = np.linalg.eig(J)
-	x = np.diag(D)
-	w = [((v**2)*2)**(alpha+beta+1)/float((alpha+beta+1))*gamma(alpha+1)*gamma(beta+1)/float(gamma(alpha+beta+1)) for v in V]
-
-	#w = [(V(1,:)'').^2*2^(alpha+beta+1)/(alpha+beta+1)*gamma(alpha+1)*...
-	#gamma(beta+1)/gamma(alpha+beta+1) for v in V[1,:]]
-	return x, w
+	print J
+	[W,V] = np.linalg.eig(J)
+	x = W
+	#print V[0]
+	return x #, w
 
 def Dmatrix1D(N,r,V):
 	""" Initialize the (r) differentiation matrices
 	% on the interval, evaluated at (r) at order N """
 
 	Vr = GradVandermonde1D(N, r)
+	print Vr
 	#Dr = np.divide(Vr,V)
 	Dr = np.linalg.lstsq(np.transpose(Vr),np.transpose(V))[0]
 
@@ -195,6 +190,7 @@ def GeometricFactors1D(x, Dr):
 	
 	xr = np.transpose(Dr)*x
 	J = xr
+	print J
 	rx = [1./j for j in J[0]]
 	return rx, J
 
@@ -325,22 +321,17 @@ class advectionClass(object):
 		self.Nfaces = 2
 
 		self.r = JacobiGL(0,0,self.N)
-		print self.r
 		tempa = [self.VX[int(a)] for a in self.va]
 		tempb = [self.VX[int(b)] for b in self.vb]
-		print np.dot(np.ones([self.N + 1,1]), np.matrix(tempa))
-		print 0.5*np.dot(self.r+1,np.matrix(tempb)-np.matrix(tempa))
 		self.x = np.dot(np.ones([self.N + 1,1]) , np.matrix(tempa)) + \
 			0.5*np.dot(self.r+1,np.matrix(tempb)-np.matrix(tempa))
-
-		print 'selfx'
-		print self.x
 
 		self.NODETOL = 1e-10
 
 		self.V = Vandermonde1D(N, self.r)
 
 		self.Dr = Dmatrix1D(self.N, self.r, self.V)
+		print self.Dr
 
 		self.rx, self.J = GeometricFactors1D(self.x, self.Dr)
 
@@ -355,17 +346,14 @@ class advectionClass(object):
 
 		self.Fx = self.x[self.Fmask,:]
 		self.Fscale = np.divide(1.,self.J[self.Fmask,:][0,:,:])
+		print 'fsace'
+		print self.Fscale
 
 		self.EToE, self.EToF = connect1D(self.EToV, self.Nfaces)
 
 		self.vmapM, self.vmapP, self.vmapB, self.mapB, self.vmapI, self.vmapO, self.mapI, self.mapO = \
 		BuildMaps1D(self.K, self.Np, self.Nfaces, self.Nfp, self.Fmask, self.EToE, self.EToF, self.x, self.NODETOL)
 		#(K, Np, Nfaces, Nfp, Fmask, EToE, EToF):
-
-		#self.vmapI = []
-		#self.vmapO = []
-		#self.mapI = []
-		#self.mapO = []
 
 		#self.invV= np.linalg.inv(self.V)
 
@@ -377,23 +365,33 @@ class advectionClass(object):
 		# form field differences at faces
 		alpha=1
 		du = np.zeros([self.Nfp*self.Nfaces,self.K])
+		#print du.shape
+		du2 = du.flatten()
 
 		#print self.vmapM
 		tempu_m = [u1 for indx, u1 in zip(range(len(u)),u) for indx in self.vmapM]
 		tempu_p = [u1 for indx, u1 in zip(range(len(u)),u) for indx in self.vmapP]
+		uin = -np.sin(a*time)
+		#print 'mapI'
+		#print self.mapI
+		#print self.mapO
 		#print tempu_m[0]
 		#print (a*self.nx.flatten()-(1-alpha)*abs(a*self.nx.flatten()))/2.
 		#du = (np.array(tempu_m[0])-np.array(tempu_p[0]))*(a*self.nx.flatten()-(1-alpha)*abs(a*self.nx.flatten()))/2.
 		# impose boundary condition at x=0
-		uin = -np.sin(a*time)
 		
-		#du [mapI] = (u(vmapI)- uin ).*(a*nx(mapI)-(1-alpha)*abs(a*nx(mapI)))/2;
-		#du [mapO] = 0;
-
+		#print self.nx
+		#print np.dot((u[self.vmapI]- uin ),(a*self.nx[self.mapI]-(1-alpha)*abs(a*self.nx[self.mapI]))/2.)
+		#print du2
+		du2[self.mapI] = np.dot((u[self.vmapI]- uin ),(a*self.nx[self.mapI]-(1-alpha)*abs(a*self.nx[self.mapI]))/2.)
+		du2[self.mapO] = 0
+		#print du
+		du2 = np.reshape(du2, [self.Nfp*self.Nfaces,self.K])
+		#print du2
 		#compute right hand sides of the semi-discrete PDE
 		#rhsu = -np.matrix(np.transpose(self.rx))*(np.matrix(np.transpose(self.Dr*u))) + np.matrix(self.LIFT)*(np.matrix(du))
 
-		rhsu = -a*np.multiply(self.rx[0],np.dot(self.Dr , np.array(u))) + np.dot(self.LIFT,np.multiply(self.Fscale,np.array(du)))
+		rhsu = -a*np.multiply(self.rx[0],np.dot(self.Dr , np.array(u))) + np.dot(self.LIFT,np.multiply(self.Fscale,np.array(du2)))
 		
 		return rhsu
 
@@ -402,7 +400,7 @@ class advectionClass(object):
 		initial the condition, u """
 
 		time = 0
-		u0 = np.sin(self.x)
+		u0 = 1-np.sin(np.pi*self.x)
 		#Runge-Kutta residual storage
 		resu = np.zeros([self.Np, self.K])
 		# compute time step size
@@ -412,7 +410,7 @@ class advectionClass(object):
 		
 		dt = CFL/(2*np.pi)*np.transpose(xmin)[0][0]
 		
-		dt = .5*dt
+		dt = .25*dt
 		
 		Nsteps = np.ceil(FinalTime/float(dt))
 		dt = FinalTime/float(Nsteps)
@@ -431,9 +429,9 @@ class advectionClass(object):
 			#% Increment time
 			time = time+dt;
 			print u0.shape
-			frames.append(u0.flatten()[0,0:9])
+			frames.append(u0.flatten()[0])
 		
-		mov.make_movie(frames, self.x.flatten()[0,0:9], "dg")
+		mov.make_movie(frames, self.x.flatten()[0], "dg")
 
 		return u0
 
@@ -445,7 +443,7 @@ def generate_mesh(xmin, xmax, K):
 	VX = range(0,Nv)
 	
 	for i in VX:
-		VX[i] = (xmax-xmin)*(i-1)/float((Nv-1)) + xmin
+		VX[i] = (xmax-xmin)*(i+1-1)/float((Nv-1)) + xmin
 
 	# read element to node connectivity
 	EToV = np.zeros([K, 2])
