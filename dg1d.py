@@ -3,6 +3,7 @@ import copy
 import make_movie as mov
 from scipy.special import gamma
 from scipy.sparse import csc_matrix, diags, find
+import sys
 
 def RGKT_coeffs():
 	# ew 
@@ -93,7 +94,7 @@ def JacobiGL(alpha, beta, N):
 	xint.sort()
 	x[0] = -1
 	for i in np.arange(0,len(xint)):
-		print x[i]
+		#print x[i]
 		x[i+1] = xint[i]
 	x[len(x)-1] = 1
 
@@ -116,13 +117,13 @@ def JacobiGQ(alpha, beta, N):
 	# Form symmetric matrix from recurrence.
 	J = np.zeros(N+1);
 	h1 = [2*indx + alpha+beta for indx in range(0,N+1)]
-	print h1
+	#print h1
 
 	J = np.diag([-1/2.*(alpha**2-beta**2)/float((h11+2))/float(h11) for h11 in h1]) + \
 		np.diag([2./(h1[indx]+2)*np.sqrt((indx+1)*(indx+1 + alpha+ beta)*(indx+1+alpha)*(indx+1+beta)/float(h1[indx]+1)/float(h1[indx]+3)) for indx in np.arange(0,N)],1)
 
 	J = J + np.transpose(J)
-	print J
+	#print J
 	[W,V] = np.linalg.eig(J)
 	x = W
 	#print V[0]
@@ -133,10 +134,8 @@ def Dmatrix1D(N,r,V):
 	% on the interval, evaluated at (r) at order N """
 
 	Vr = GradVandermonde1D(N, r)
-	print Vr
-	#Dr = np.divide(Vr,V)
-	Dr = np.linalg.lstsq(np.transpose(Vr),np.transpose(V))[0]
-
+	Dr = np.dot(Vr,np.linalg.inv(V))
+	#print 'Dr'
 	return Dr
 
 def GradVandermonde1D(N,r):
@@ -144,10 +143,11 @@ def GradVandermonde1D(N,r):
 	% at order N"""
 	DVr = np.zeros([len(r),N+1])
 
-	for i in range(0,N-1):
+	for i in range(0,N+1):
 		temp = GradJacobiP(r,0,0,i)
-		DVr[:,i+1] = copy.deepcopy(np.transpose(temp)[0]) #first entry of DVr has nothing
-	
+		#print temp
+		DVr[:,i] = np.transpose(temp)
+
 	return DVr
 
 def GradJacobiP(r, alpha, beta, N):
@@ -159,7 +159,7 @@ def GradJacobiP(r, alpha, beta, N):
 	if(N == 0):
 		dP.fill(0.0)
 	else:
-		dP = np.sqrt(N*(N+alpha+beta+1))*JacobiP(r,alpha+1,beta+1, N-1);
+		dP = np.reshape(np.sqrt(N*(N+alpha+beta+1))*JacobiP(r,alpha+1,beta+1, N-1),[len(r), 1])
 	
 	return dP
 
@@ -171,7 +171,8 @@ def Lift1D(V, Np, Nfaces, Nfp):
 	Emat[Np-1,1] = 1.0
 	
 	LIFT = np.dot(V,np.dot(np.transpose(V),Emat))
-	#print LIFT
+	print 'Lift'
+	print LIFT
 
 	return LIFT
 
@@ -188,10 +189,9 @@ def GeometricFactors1D(x, Dr):
 	""" Compute the metric elements for the local mappings
 	% of the 1D elements"""
 	
-	xr = np.transpose(Dr)*x
+	xr = Dr*x
 	J = xr
-	print J
-	rx = [1./j for j in J[0]]
+	rx = 1/J
 	return rx, J
 
 def connect1D(EToV, Nfaces):
@@ -258,8 +258,9 @@ def connect1D(EToV, Nfaces):
 def Vandermonde1D(N,r):
 	""" Initialize the 1D Vandermonde Matrix, V_{ij} = phi_j(r_i);"""
 	V1D = np.zeros([len(r),N+1])
-	for j in range(1,N+1):
-		V1D[:,j]= JacobiP(r, 0, 0, j-1) #first element of V1D is empty
+	for j in range(1,N+2):
+		V1D[:,j-1]= np.reshape(JacobiP(r, 0, 0, j-1),[len(r)]) #first element of V1D is empty
+		#print V1D[:,j]
 
 	return V1D
 
@@ -271,41 +272,53 @@ def JacobiP(x,alpha,beta,N):
 	Turn points into row if needed. """
 	#print' entered jacobiP'
 	#print N
-	xp = np.transpose(x)[0]
+	xp = x
+	if xp.shape[0] == 1:
+		xp = np.transpose(xp)
+		return xp
 
 	PL = np.zeros([N+1, len(xp)])
 
 
 	# Initial values P_0(x) and P_1(x)
 	gamma0 = 2**(alpha+beta+1)/float((alpha+beta+1)*gamma(alpha+1)*gamma(beta+1))/float(gamma(alpha+beta+1))
+	#print gamma0
 	PL[0,:] = 1.0/float(np.sqrt(gamma0))
+	#print PL[0,:]
 	#print 'gamma0 %d', gamma0
 
 	if N==0:
-		P = PL
+		P = np.transpose(PL)
 		return P
 
 	gamma1 = (alpha+1)*(beta+1)/float((alpha+beta+3))*gamma0
-	PL[1,:] = ((alpha+beta+2)*xp/2. + (alpha-beta)/2.)/float(np.sqrt(gamma1))
+	#print gamma1
+	PL[1,:] = np.reshape(((alpha+beta+2)*xp/2. + (alpha-beta)/2.)/float(np.sqrt(gamma1)),[1,len(xp)])
+	#print PL[1,:]
 	#print PL[0,:]
 	if N==1:
-		P=PL[N,:]
+		P=np.transpose(PL[N,:])
 		return P
 
 	# Repeat value in recurrence.
-	aold = 2/(2+alpha+beta)*np.sqrt((alpha+1)*(beta+1)/(alpha+beta+3))
+	aold = 2/float(2+alpha+beta)*np.sqrt((alpha+1)*(beta+1)/float(alpha+beta+3))
+	#print aold
 	# Forward recurrence using the symmetry of the recurrence.
+	#aold=0
 	for i in range(0,N-1):
 		h1 = 2*(i+1)+alpha+beta
-		anew = 2/float((h1+2))*np.sqrt( (i+2)*(i+2+alpha+beta)*(i+2+alpha)*(i+2+beta)/float((h1+1))/float((h1+3)))
+		#anew = 2/float((h1+2))*np.sqrt( (i+1+1)*(i+1+1+alpha+beta)*(i+2+alpha)*(i+2+beta)/float((h1+1))/float((h1+3)))
+		anew = 2./float(h1+2)*np.sqrt( ((i+1)+1)*(i+1+1+alpha + beta)*(i+1+1+alpha) * (i+1+1+beta)/float(h1+1)/float(h1+3))
+		#print aold
 		bnew = - (alpha**2-beta**2)/float(h1)/float(h1+2)
-		PL[i+1,:] = np.dot(1/float(anew)*( -aold*PL[i,:] + (xp-bnew)), PL[i,:])
-		aold =anew
-	#print PL
-	P = PL[N-1,:]
-
-	#print P
-
+		temporary= np.multiply((np.transpose(xp)-bnew),PL[i+1,:])
+		#PL[i+2,:] = np.multiply(1/float(anew)*( -aold*PL[i,:] + (np.transpose(xp)-bnew)),PL[i+1,:])
+		PL[i+2,:] = 1/float(anew)*( -aold*PL[i,:] + temporary )
+		
+		#print PL[i+2,:]
+		aold = anew
+	P = np.transpose(PL[PL.shape[0]-1,:])
+	
 	return P
 
 class advectionClass(object):
@@ -331,7 +344,6 @@ class advectionClass(object):
 		self.V = Vandermonde1D(N, self.r)
 
 		self.Dr = Dmatrix1D(self.N, self.r, self.V)
-		print self.Dr
 
 		self.rx, self.J = GeometricFactors1D(self.x, self.Dr)
 
@@ -345,19 +357,15 @@ class advectionClass(object):
 		indices = [ind for ind in fmask1 + fmask2]
 
 		self.Fx = self.x[self.Fmask,:]
-		self.Fscale = np.divide(1.,self.J[self.Fmask,:][0,:,:])
-		print 'fsace'
-		print self.Fscale
+
+		self.Fscale = 1./np.squeeze(self.J[self.Fmask,:])
 
 		self.EToE, self.EToF = connect1D(self.EToV, self.Nfaces)
 
 		self.vmapM, self.vmapP, self.vmapB, self.mapB, self.vmapI, self.vmapO, self.mapI, self.mapO = \
 		BuildMaps1D(self.K, self.Np, self.Nfaces, self.Nfp, self.Fmask, self.EToE, self.EToF, self.x, self.NODETOL)
-		#(K, Np, Nfaces, Nfp, Fmask, EToE, EToF):
 
-		#self.invV= np.linalg.inv(self.V)
-
-		self.rgkt = RGKT_coeffs() #dict
+		self.rgkt = RGKT_coeffs() #dict containing the rk coeffs
 
 	def AdvecRHS1D(self, u,time, a):
 		""" Purpose : Evaluate RHS flux in 1D advection """
@@ -365,34 +373,23 @@ class advectionClass(object):
 		# form field differences at faces
 		alpha=1
 		du = np.zeros([self.Nfp*self.Nfaces,self.K])
-		#print du.shape
-		du2 = du.flatten()
 
-		#print self.vmapM
 		tempu_m = [u1 for indx, u1 in zip(range(len(u)),u) for indx in self.vmapM]
 		tempu_p = [u1 for indx, u1 in zip(range(len(u)),u) for indx in self.vmapP]
-		uin = -np.sin(a*time)
-		#print 'mapI'
-		#print self.mapI
-		#print self.mapO
-		#print tempu_m[0]
-		#print (a*self.nx.flatten()-(1-alpha)*abs(a*self.nx.flatten()))/2.
-		#du = (np.array(tempu_m[0])-np.array(tempu_p[0]))*(a*self.nx.flatten()-(1-alpha)*abs(a*self.nx.flatten()))/2.
-		# impose boundary condition at x=0
-		
-		#print self.nx
-		#print np.dot((u[self.vmapI]- uin ),(a*self.nx[self.mapI]-(1-alpha)*abs(a*self.nx[self.mapI]))/2.)
-		#print du2
-		du2[self.mapI] = np.dot((u[self.vmapI]- uin ),(a*self.nx[self.mapI]-(1-alpha)*abs(a*self.nx[self.mapI]))/2.)
-		du2[self.mapO] = 0
-		#print du
-		du2 = np.reshape(du2, [self.Nfp*self.Nfaces,self.K])
-		#print du2
-		#compute right hand sides of the semi-discrete PDE
-		#rhsu = -np.matrix(np.transpose(self.rx))*(np.matrix(np.transpose(self.Dr*u))) + np.matrix(self.LIFT)*(np.matrix(du))
 
-		rhsu = -a*np.multiply(self.rx[0],np.dot(self.Dr , np.array(u))) + np.dot(self.LIFT,np.multiply(self.Fscale,np.array(du2)))
-		
+		du = np.multiply((np.array(tempu_m[0])-np.array(tempu_p[0])),(a*self.nx - (1-alpha)*abs(a*self.nx))/2.)
+		du = du.flatten()
+
+		uin = -np.sin(a*np.pi*time)
+
+		du[self.mapI] = np.dot(u[self.vmapI,0] - uin,(a*self.nx[self.mapI,0])/2.)
+
+		du[self.mapO] = 0
+
+		du2 = np.reshape(du, [self.Nfp*self.Nfaces,self.K])
+
+		rhsu = -a*np.multiply(self.rx,np.dot(self.Dr , u)) + np.dot(self.LIFT,np.multiply(self.Fscale,np.array(du2)))
+
 		return rhsu
 
 	def Advec1D(self, FinalTime):
@@ -400,38 +397,38 @@ class advectionClass(object):
 		initial the condition, u """
 
 		time = 0
-		u0 = 1-np.sin(np.pi*self.x)
+		u0 = np.sin(np.pi*self.x)
+
 		#Runge-Kutta residual storage
 		resu = np.zeros([self.Np, self.K])
 		# compute time step size
-		xmin = min(abs(self.x[0,:]-self.x[1,:]))#self.x(1,:)-x(2,:)))
-		#print np.transpose(xmin)[0][0]
+		xmin = min(abs(self.x[0,:]-self.x[1,:]))
 		CFL = 0.75
-		
+
 		dt = CFL/(2*np.pi)*np.transpose(xmin)[0][0]
 		
-		dt = .25*dt
+		dt = .5*dt
 		
 		Nsteps = np.ceil(FinalTime/float(dt))
 		dt = FinalTime/float(Nsteps)
-		# advection speed
-		a = 2*np.pi
 		
-		# outer time step loop
-
+		a = 2*np.pi # advection speed
+		
 		frames = []
+		times = []
+		step = 0
 		for tstep in range(0, int(Nsteps)):
-			for INTRK in np.arange(1,5):
+			for INTRK in range(0,5):
 				timelocal = time + self.rgkt['rk4c'][INTRK]*dt;
 				rhsu = self.AdvecRHS1D(u0, timelocal, a);
 				resu = self.rgkt['rk4a'][INTRK]*resu + dt*rhsu;
 				u0 = u0 + self.rgkt['rk4b'][INTRK]*resu
 			#% Increment time
-			time = time+dt;
-			print u0.shape
+			times.append(time) # plotting
+			time = time+dt
 			frames.append(u0.flatten()[0])
 		
-		mov.make_movie(frames, self.x.flatten()[0], "dg")
+		mov.make_movie(frames, self.x.flatten()[0], times, "dg")
 
 		return u0
 
@@ -452,20 +449,19 @@ def generate_mesh(xmin, xmax, K):
 		EToV[k,0] = k
 		EToV[k,1] = k+1
 
+	#EToV[EToV.shape[0]-1,1] = EToV[0,0] # Periodic BC (?)
+
 	return Nv, VX, K, EToV
 
-def run():
+def run(order):
 
-	N = 8 #order of polynomials
+	N = order #order of basis polynomials
 
 	eq = advectionClass(N)
-
-	# initial conditions
-	#u0 = np.sin()
 
 	finaltime=0.5
 
 	u = eq.Advec1D(finaltime)
 
 if __name__ == '__main__':
-	run()
+	run(int(sys.argv[1]))
