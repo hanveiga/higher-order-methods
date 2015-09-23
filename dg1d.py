@@ -6,7 +6,8 @@ from scipy.sparse import csc_matrix, diags, find
 import sys
 
 def RGKT_coeffs():
-	# ew 
+	""" Runge kutta coeffs for 4th order time integration """
+
 	rgkt = {}
 	rgkt['rk4a'] = [ 0.0, \
 					 -567301805773.0/1357537059087.0, \
@@ -29,42 +30,37 @@ def RGKT_coeffs():
 	return rgkt
 
 def BuildMaps1D(K, Np, Nfaces, Nfp, Fmask, EToE, EToF, x, NODETOL):
-	#function [vmapM, vmapP, vmapB, mapB] = BuildMaps1D
-	#% function [vmapM, vmapP, vmapB, mapB] = BuildMaps1D
-	#% Purpose: Connectivity and boundary tables for nodes given in the K #
+	""" Connectivity and boundary tables for nodes given in the K #
 	#% of elements, each with N+1 degrees of freedom.
 	#Globals1D;
 	#% number volume nodes consecutively
-	nodeids = np.reshape(range(0,K*Np), (Np, K))
-
+	"""
+	nodeids = np.reshape(range(0,K*Np), (Np, K), order='F')
 	vmapM = np.zeros([Nfp, Nfaces, K])
 	vmapP = np.zeros([Nfp, Nfaces, K])
 	for k1 in range(0,K):
 		for f1 in range(0,Nfaces):
+			for i in range(Nfp):
 			#find index of face nodes with respect to volume node ordering
-				vmapM[:,f1,k1] = nodeids[Fmask[f1], k1]
+				vmapM[i,f1,k1] = nodeids[Fmask[f1],k1]
 
 	for k1 in range(0,K):
 		for f1 in range(0,Nfaces):
 			#find neighbor
-			try:
-				k2 = EToE[k1,f1]
-				f2 = EToF[k1,f1]
-				# find volume node numbers of left and right nodes
-				vidM = vmapM[:,f1,k1]
-				vidP = vmapM[:,f2,k2]
+			k2 = EToE[k1,f1]
+			f2 = EToF[k1,f1]
+			vidM = vmapM[:,f1,k1]
+			vidP = vmapM[:,f2,k2]
 
-				x1 = [x[0][int(vidM)]]
-				x2 = [x[0][int(vidP)]]
-				# Compute distance matrix
-				D = [ (x11-x22)**2  for x11, x22 in zip(x1,x2)] 
-				if (D<NODETOL):
-					vmapP[:,f1,k1]= vidP	
-			except:
-				continue
+			x1 = x.flatten(order='F')[0,int(vidM)]
+			x2 = x.flatten(order='F')[0,int(vidP)]
 
-	vmapP = vmapP.flatten()
-	vmapM = vmapM.flatten()
+			D = (x1-x2)**2
+			if (D<NODETOL):
+				vmapP[:,f1,k1]= vidP	
+
+	vmapP = vmapP.flatten(order='F')
+	vmapM = vmapM.flatten(order='F')
 
 	# Create list of boundary nodes
 	mapB = np.where(vmapP==vmapM)
@@ -79,18 +75,20 @@ def BuildMaps1D(K, Np, Nfaces, Nfp, Fmask, EToE, EToF, x, NODETOL):
 	return vmapM, vmapP, vmapB, mapB, vmapI, vmapO, mapI, mapO
 
 
+
 def JacobiGL(alpha, beta, N):
 	""" Compute the N'th order Gauss Lobatto quadrature
 	points, x, associated with the Jacobi polynomial,
 	of type (alpha,beta) > -1 ( <> -0.5)."""
 
-	x = np.zeros([N+1,1]);
+	x = np.zeros([N+1,1])
 	if N==1:
 		x[0]=-1.0;
 		x[1]=1.0;
 		return x
 
-	xint = JacobiGQ(alpha+1,beta+1,N-2);
+	xint = JacobiGQ(alpha+1,beta+1,N-2)
+
 	xint.sort()
 	x[0] = -1
 	for i in np.arange(0,len(xint)):
@@ -200,58 +198,49 @@ def connect1D(EToV, Nfaces):
 	on standard EToV input array from grid generator"""
 
 	# Find number of elements and vertices
-	K = EToV.shape[1]
+	K = EToV.shape[0]
 	TotalFaces = Nfaces*K;
 	Nv = K+1;
 	
-	#% List of local face to local vertex connections
+	# List of local face to local vertex connections
 	vn = [0,1];
 	
-	#% Build global face to node sparse array
-	
-	#SpFToV = spalloc(TotalFaces, Nv, 2*TotalFaces);
-	
-	SpFToV = csc_matrix((TotalFaces, Nv))
-	#print 'etov'
-	#print EToV
+	# Build global face to node sparse array
+	SpFToV = csc_matrix((TotalFaces, Nv)) #elements*faces, vertices
+
 	sk = 0;
-	for k in range(0,K): #=1:K
-		for face in range(0,Nfaces): #=1:Nfaces:
-			SpFToV[sk, EToV[k, vn[face]]] = 1;
+
+	for k in range(0,K): # number of elements
+		print k
+		for face in range(0,Nfaces): # number of faces
+			SpFToV[sk, EToV[k, face]] = 1;
 			sk = sk+1;
 
-	#% Build global face to global face sparse array
-	#print SpFToV
 	SpFToF = SpFToV*np.transpose(SpFToV) - diags([1]*TotalFaces,0,shape=(TotalFaces,TotalFaces)) #np.diags(TotalFaces);
-	#print SpFToF
-	# Find complete face to face connections
+
 	faces1, faces2, vals = find(SpFToF==1)
+
 	faces1 = [f for f,i in zip(faces1, range(0,len(vals))) if vals[i] == 1]
 	faces2 = [f for f,i in zip(faces2, range(0,len(vals))) if vals[i] == 1]
 
-	#faces2 = SpFToF[faces1] 
-	#print 'made it here'
-	#print faces1
-	#print faces2
-	# Convert face global number to element and face numbers
-	#print faces1
-	#print faces2
-	element1 = [np.floor( (elem-1)/Nfaces ) + 1 for elem in faces1]
-	#print element1
-	face1 = [np.mod( (elem-1), Nfaces ) + 1 for elem in faces1]
-	element2 = [ np.floor( (elem-1)/Nfaces ) + 1 for elem in faces2]
-	face2 = [ np.mod( (elem-1), Nfaces ) + 1 for elem in faces2]
-	# Rearrange into Nelements x Nfaces sized arrays
-	#ind = sub2ind([K, Nfaces], element1, face1);
-	#ind = np.ravel_multi_index( [K, Nfaces] , dims=[element1, face1])
-	EToE = np.transpose(np.tile(range(0,K),(Nfaces,1)))
-	EToF = np.tile(range(0,Nfaces),(K,1))
+	# truly distasteful way of implementing the FToF conversion to EToE and EToF
+	element1 = [np.floor( (elem)/Nfaces ) for elem in faces1]
+	face1 = [np.mod( (elem), Nfaces ) for elem in faces1]
+	element2 = [ np.floor( (elem)/Nfaces ) for elem in faces2]
+	face2 = [ np.mod( (elem), Nfaces ) for elem in faces2]
 
-	#EToE = (1:K)'*ones(1,Nfaces)
-	#EToF = ones(K,1)*(1:Nfaces)
-	EToE[1] = element2; EToF[1] = face2;
-	#print EToE[1]
-	#print EToF[1]
+	indices = []
+
+	for i,j in zip(element1,face1):
+		indices.append(np.ravel_multi_index((int(i), int(j)), dims=(K, Nfaces), order='F'))
+	EToE = np.transpose(np.tile(range(0,K),(Nfaces,1))).flatten()
+	EToF = np.tile(range(0,Nfaces),(K,1)).flatten()
+
+	EToE[indices] = element2
+	EToF[indices] = face2
+
+	EToE = np.reshape(EToE, (K,Nfaces), order='F')
+	EToF = np.reshape(EToF, (K,Nfaces), order='F')
 
 	return EToE, EToF
 
@@ -259,8 +248,7 @@ def Vandermonde1D(N,r):
 	""" Initialize the 1D Vandermonde Matrix, V_{ij} = phi_j(r_i);"""
 	V1D = np.zeros([len(r),N+1])
 	for j in range(1,N+2):
-		V1D[:,j-1]= np.reshape(JacobiP(r, 0, 0, j-1),[len(r)]) #first element of V1D is empty
-		#print V1D[:,j]
+		V1D[:,j-1]= np.reshape(JacobiP(r, 0, 0, j-1),[len(r)])
 
 	return V1D
 
@@ -270,8 +258,7 @@ def JacobiP(x,alpha,beta,N):
 	P[1:length(xp))]
 	Note : They are normalized to be orthonormal.
 	Turn points into row if needed. """
-	#print' entered jacobiP'
-	#print N
+
 	xp = x
 	if xp.shape[0] == 1:
 		xp = np.transpose(xp)
@@ -282,40 +269,28 @@ def JacobiP(x,alpha,beta,N):
 
 	# Initial values P_0(x) and P_1(x)
 	gamma0 = 2**(alpha+beta+1)/float((alpha+beta+1)*gamma(alpha+1)*gamma(beta+1))/float(gamma(alpha+beta+1))
-	#print gamma0
 	PL[0,:] = 1.0/float(np.sqrt(gamma0))
-	#print PL[0,:]
-	#print 'gamma0 %d', gamma0
 
 	if N==0:
 		P = np.transpose(PL)
 		return P
 
 	gamma1 = (alpha+1)*(beta+1)/float((alpha+beta+3))*gamma0
-	#print gamma1
 	PL[1,:] = np.reshape(((alpha+beta+2)*xp/2. + (alpha-beta)/2.)/float(np.sqrt(gamma1)),[1,len(xp)])
-	#print PL[1,:]
-	#print PL[0,:]
 	if N==1:
 		P=np.transpose(PL[N,:])
 		return P
 
 	# Repeat value in recurrence.
 	aold = 2/float(2+alpha+beta)*np.sqrt((alpha+1)*(beta+1)/float(alpha+beta+3))
-	#print aold
-	# Forward recurrence using the symmetry of the recurrence.
-	#aold=0
+
 	for i in range(0,N-1):
 		h1 = 2*(i+1)+alpha+beta
-		#anew = 2/float((h1+2))*np.sqrt( (i+1+1)*(i+1+1+alpha+beta)*(i+2+alpha)*(i+2+beta)/float((h1+1))/float((h1+3)))
 		anew = 2./float(h1+2)*np.sqrt( ((i+1)+1)*(i+1+1+alpha + beta)*(i+1+1+alpha) * (i+1+1+beta)/float(h1+1)/float(h1+3))
 		#print aold
 		bnew = - (alpha**2-beta**2)/float(h1)/float(h1+2)
 		temporary= np.multiply((np.transpose(xp)-bnew),PL[i+1,:])
-		#PL[i+2,:] = np.multiply(1/float(anew)*( -aold*PL[i,:] + (np.transpose(xp)-bnew)),PL[i+1,:])
 		PL[i+2,:] = 1/float(anew)*( -aold*PL[i,:] + temporary )
-		
-		#print PL[i+2,:]
 		aold = anew
 	P = np.transpose(PL[PL.shape[0]-1,:])
 	
@@ -374,22 +349,29 @@ class advectionClass(object):
 		alpha=1
 		du = np.zeros([self.Nfp*self.Nfaces,self.K])
 
-		tempu_m = [u1 for indx, u1 in zip(range(len(u)),u) for indx in self.vmapM]
-		tempu_p = [u1 for indx, u1 in zip(range(len(u)),u) for indx in self.vmapP]
+		tempu_m = [u1 for indx, u1 in zip(range(len(u)),u) if indx in self.vmapM]
+		tempu_p = [u1 for indx, u1 in zip(range(len(u)),u) if indx in self.vmapP]
 
-		du = np.multiply((np.array(tempu_m[0])-np.array(tempu_p[0])),(a*self.nx - (1-alpha)*abs(a*self.nx))/2.)
-		du = du.flatten()
+		flatu = np.squeeze(u.flatten(order='F'))
+		tempu_m = []
+		tempu_p = []
+		for indx in self.vmapM:
+			print indx
+			tempu_m.append(flatu[0,indx])
+		for indx in self.vmapP:
+			tempu_p.append(flatu[0,indx])
 
+		du = du.flatten(order='F')
+		du[:] = np.multiply(np.array(tempu_m) - np.array(tempu_p),a*self.nx.flatten(order='F') - ((1-alpha)*abs(a*self.nx.flatten(order='F')))/2.)
 		uin = -np.sin(a*np.pi*time)
 
-		du[self.mapI] = np.dot(u[self.vmapI,0] - uin,(a*self.nx[self.mapI,0])/2.)
+		du[self.mapI] = np.dot(u[self.vmapI,0]-uin,(a*self.nx[self.mapI,0])/2.)
+		#du[self.mapI] = np.dot(u[self.vmapI,0],(a*self.nx[self.mapI,0])/2.)
 
 		du[self.mapO] = 0
-
-		du2 = np.reshape(du, [self.Nfp*self.Nfaces,self.K])
-
+		
+		du2 = np.reshape(du, [self.Nfp*self.Nfaces,self.K], order='F')
 		rhsu = -a*np.multiply(self.rx,np.dot(self.Dr , u)) + np.dot(self.LIFT,np.multiply(self.Fscale,np.array(du2)))
-
 		return rhsu
 
 	def Advec1D(self, FinalTime):
@@ -403,7 +385,7 @@ class advectionClass(object):
 		resu = np.zeros([self.Np, self.K])
 		# compute time step size
 		xmin = min(abs(self.x[0,:]-self.x[1,:]))
-		CFL = 0.75
+		CFL = 0.5
 
 		dt = CFL/(2*np.pi)*np.transpose(xmin)[0][0]
 		
@@ -419,22 +401,23 @@ class advectionClass(object):
 		step = 0
 		for tstep in range(0, int(Nsteps)):
 			for INTRK in range(0,5):
-				timelocal = time + self.rgkt['rk4c'][INTRK]*dt;
-				rhsu = self.AdvecRHS1D(u0, timelocal, a);
-				resu = self.rgkt['rk4a'][INTRK]*resu + dt*rhsu;
+				# Runge kutta time integration 4 stage 4th order
+				timelocal = time + self.rgkt['rk4c'][INTRK]*dt
+				rhsu = self.AdvecRHS1D(u0, timelocal, a)
+				resu = self.rgkt['rk4a'][INTRK]*resu + dt*rhsu
 				u0 = u0 + self.rgkt['rk4b'][INTRK]*resu
 			#% Increment time
-			times.append(time) # plotting
+			times.append(time)
 			time = time+dt
 			frames.append(u0.flatten()[0])
-		
+
 		mov.make_movie(frames, self.x.flatten()[0], times, "dg")
 
 		return u0
 
 def generate_mesh(xmin, xmax, K):
 	""" Generate simple equidistant grid with K elements """
-	Nv = K+1;
+	Nv = K+1
 	# Generate node coordinates
 	
 	VX = range(0,Nv)
@@ -449,18 +432,12 @@ def generate_mesh(xmin, xmax, K):
 		EToV[k,0] = k
 		EToV[k,1] = k+1
 
-	#EToV[EToV.shape[0]-1,1] = EToV[0,0] # Periodic BC (?)
-
 	return Nv, VX, K, EToV
 
 def run(order):
-
 	N = order #order of basis polynomials
-
 	eq = advectionClass(N)
-
 	finaltime=0.5
-
 	u = eq.Advec1D(finaltime)
 
 if __name__ == '__main__':
