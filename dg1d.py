@@ -28,14 +28,32 @@ class RiemannProblem(Conditions):
         for i in range(self.x.shape[0]):
             for j in range(self.x.shape[1]):
                 if self.x[i,j] < xmid:
-                    u0[i,j] = 2
+                    u0[i,j] = 1.5
                 else:
-                    u0[i,j] = 1
+                    u0[i,j] = 0
       
         return u0
 
     def bc(self,a, t):
-        return 2
+        return 1.5
+
+class SquarePulse(Conditions):
+    def ic(self):
+        flatx = np.squeeze(self.x.flatten(order='F').tolist())
+        xmid = 0.5*(flatx[-1]-flatx[0])
+
+        u0 = copy.deepcopy(self.x)
+
+        for i in range(self.x.shape[0]):
+            for j in range(self.x.shape[1]):
+                if self.x[i,j] < xmid - 0.1 or self.x[i,j] > xmid + 0.1:
+                    u0[i,j] = 0
+                else:
+                    u0[i,j] = 1
+        return u0
+
+    def bc(self, a,t):
+        return 0
 
 def RGKT_coeffs():
     """ Runge kutta coeffs for 4th order time integration """
@@ -106,30 +124,33 @@ def BuildMaps1D(K, Np, Nfaces, Nfp, Fmask, EToE, EToF, x, NODETOL):
 
     return vmapM, vmapP, vmapB, mapB, vmapI, vmapO, mapI, mapO
 
-
-
 def JacobiGL(alpha, beta, N):
     """ Compute the N'th order Gauss Lobatto quadrature
     points, x, associated with the Jacobi polynomial,
     of type (alpha,beta) > -1 ( <> -0.5)."""
 
     x = np.zeros([N+1,1])
+    w = np.zeros([N+1,1])
+    
     if N==1:
         x[0]=-1.0;
         x[1]=1.0;
         return x
 
-    xint = JacobiGQ(alpha+1,beta+1,N-2)
+    xint, wint = JacobiGQ(alpha+1,beta+1,N-2)
 
     xint.sort()
     x[0] = -1
     for i in np.arange(0,len(xint)):
         #print x[i]
         x[i+1] = xint[i]
-    x[len(x)-1] = 1
+        w[i+1] = wint[i]
 
-    
-    return x
+    x[len(x)-1] = 1
+    w[0] = 2/float(N*(N-1))
+    w[len(w)-1] = 2/float(N*(N-1))
+
+    return x, w
 
 def JacobiGQ(alpha, beta, N):
     """ Compute the N th order Gauss quadrature points, x,
@@ -155,13 +176,26 @@ def JacobiGQ(alpha, beta, N):
     J = J + np.transpose(J)
     #print J
     [W,V] = np.linalg.eig(J)
-    x = W
-    #print V[0]
-    return x #, w
+    x = sorted(W)
+    V0 = [V[:,i] for i in range(V.shape[1])]
+    d = lambda a, b: map(list, zip(a, b))
+    xw = d(W,V0)
+    xw = sorted(xw, key = lambda xx: xx[0])
+    a, b = zip(*xw)
+
+    vtop=[]
+    for i in range(len(b)): 
+        vtop.append(b[i][0])
+
+    w = ((np.array(vtop)**2)*2**(alpha+beta+1))/float(alpha+beta+1)*gamma(alpha+1)*gamma(beta+1)/float(gamma(alpha+beta+1))
+
+    #print w
+    #print lol
+    return x, w
 
 def Dmatrix1D(N,r,V):
     """ Initialize the (r) differentiation matrices
-    % on the interval, evaluated at (r) at order N """
+    on the interval, evaluated at (r) at order N """
 
     Vr = GradVandermonde1D(N, r)
     Dr = np.dot(Vr,np.linalg.inv(V))
@@ -170,7 +204,7 @@ def Dmatrix1D(N,r,V):
 
 def GradVandermonde1D(N,r):
     """Initialize the gradient of the modal basis (i) at (r)
-    % at order N"""
+    at order N"""
     DVr = np.zeros([len(r),N+1])
 
     for i in range(0,N+1):
@@ -337,12 +371,13 @@ class advectionClass(object):
 
         self.Nfaces = 2
 
-        self.r = JacobiGL(0,0,self.N)
+        self.r, self.w = JacobiGL(0,0,self.N)
         tempa = [self.VX[int(a)] for a in self.va]
         tempb = [self.VX[int(b)] for b in self.vb]
         self.x = np.dot(np.ones([self.N + 1,1]) , np.matrix(tempa)) + \
             0.5*np.dot(self.r+1,np.matrix(tempb)-np.matrix(tempa))
-
+        print self.r
+        print self.x
         self.NODETOL = 1e-10
 
         self.V = Vandermonde1D(N, self.r)
@@ -371,7 +406,7 @@ class advectionClass(object):
 
         self.rgkt = RGKT_coeffs() #dict containing the rk coeffs
 
-        self.conditions=Conditions(self.x)
+        self.conditions=SquarePulse(self.x)
 
     def AdvecRHS1D(self, u,time, a):
         """ Purpose : Evaluate RHS flux in 1D advection """
@@ -392,19 +427,29 @@ class advectionClass(object):
             tempu_p.append(flatu[0,indx])
 
         du = du.flatten(order='F')
-        du[:] = np.multiply(np.array(tempu_m) - np.array(tempu_p),a*self.nx.flatten(order='F') - ((1-alpha)*abs(a*self.nx.flatten(order='F')))/2.)
+        du[:] = np.multiply(np.array(tempu_m) - np.array(tempu_p),(a*self.nx.flatten(order='F') - (1-alpha)*abs(a*self.nx.flatten(order='F')))/2.)
         #print du
         #uin = -np.sin(a*np.pi*time)
         #uin = 2
         uin = self.conditions.bc(a,time)
-
+        print flatu
         du[self.mapI] = np.dot(u[self.vmapI,0]-uin,(a*self.nx[self.mapI,0])/2.)
+        du[self.mapI] = np.dot(u[self.vmapI,0]-flatu[0,self.vmapO],a*self.nx[self.mapI,0]/2.)
+
         #du[self.mapI] = np.dot(u[self.vmapI,0],(a*self.nx[self.mapI,0])/2.)
-        du[self.mapO] = 0
+        #du[self.mapO] = du[self.mapI]
+        flatn = np.squeeze(self.nx.flatten(order='F'))
+        print flatn
+        print self.nx[self.mapI,0]
+        print self.nx
+        du[self.mapO] = np.dot(flatu[0,self.vmapO]-u[self.vmapI,0],(a*flatn[self.mapO])/2.)
+        print self.mapI
+        print self.mapO
         #print du
+        #du[self.mapI] = np.multiply(u[-1] - u[1]),a*self.nx.flatten(order='F') - ((1-alpha)*abs(a*self.nx.flatten(order='F')))/2.)
+
         du2 = np.reshape(du, [self.Nfp*self.Nfaces,self.K], order='F')
         rhsu = -a*np.multiply(self.rx,np.dot(self.Dr , u)) + np.dot(self.LIFT,np.multiply(self.Fscale,np.array(du2)))
-        #print rhsu
         return rhsu
 
     def Advec1D(self, FinalTime):
@@ -447,7 +492,7 @@ class advectionClass(object):
 
         #return lol
 
-        mov.make_movie(frames, self.x.flatten()[0], times, "dg"+str(self.N))
+        mov.make_movie(frames, self.x.flatten()[0], times, "dg_pulse_"+str(self.N))
         return u0
 
     def get_l2_error(self,finaltime):
@@ -481,6 +526,22 @@ class advectionClass(object):
         
         return np.max(np.abs(u0-anasolution))
 
+
+    def l2_working(self,finaltime):
+        u0 = self.Advec1D(finaltime)
+        analytical_solution = lambda x: np.sin(np.pi*(x - 2*np.pi*finaltime))
+        anasolution = analytical_solution(self.x)
+        print u0-anasolution
+        error = np.abs(np.square(u0-anasolution))
+
+        print error
+        errortotal = 0
+        errortotal = gaussian_quad_rule(self.x, error, self.w, self.N)
+
+        return np.sqrt(errortotal)
+
+
+
 def error(analytical_solution, approx_solution, x):
     error_e = np.abs(analytical_solution(x)-approx_solution)
     return error_e
@@ -489,8 +550,15 @@ def quad_rule(xmin, xmax, fc_max, fc_min):
     evaluated = (xmax-xmin)/2. * (fc_max+fc_min)
     return evaluated
 
-def gaussian_quad_rule():
-    evaluated = 0
+def gaussian_quad_rule(x_vector, u_vector, weights, N):
+
+    xshape = x_vector.shape
+    
+    evaluated = []
+    for element in range(xshape[1]):
+        for node in range(xshape[0]):
+            evaluated =+ (x_vector[xshape[0]-1, element]-x_vector[0, element])/float(2)*u_vector[node,element]*weights[node]
+
     return evaluated
 
 def generate_mesh(xmin, xmax, K):
@@ -512,7 +580,7 @@ def generate_mesh(xmin, xmax, K):
 
     return Nv, VX, K, EToV
 
-def run(order, totaltime=1, xintervals=10):
+def run(order, totaltime=0.5, xintervals=10):
     N = order #order of basis polynomials
     eq = advectionClass(N, xintervals)
     finaltime=totaltime
