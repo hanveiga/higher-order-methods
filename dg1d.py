@@ -140,7 +140,6 @@ def JacobiGL(alpha, beta, N):
     xint.sort()
     x[0] = -1
     for i in np.arange(0,len(xint)):
-        #print x[i]
         x[i+1] = xint[i]
         w[i+1] = wint[i]
 
@@ -187,8 +186,6 @@ def JacobiGQ(alpha, beta, N):
 
     w = ((np.array(vtop)**2)*2**(alpha+beta+1))/float(alpha+beta+1)*gamma(alpha+1)*gamma(beta+1)/float(gamma(alpha+beta+1))
 
-    #print w
-    #print lol
     return x, w
 
 def Dmatrix1D(N,r,V):
@@ -197,7 +194,6 @@ def Dmatrix1D(N,r,V):
 
     Vr = GradVandermonde1D(N, r)
     Dr = np.dot(Vr,np.linalg.inv(V))
-    #print 'Dr'
     return Dr
 
 def GradVandermonde1D(N,r):
@@ -207,7 +203,6 @@ def GradVandermonde1D(N,r):
 
     for i in range(0,N+1):
         temp = GradJacobiP(r,0,0,i)
-        #print temp
         DVr[:,i] = np.transpose(temp)
 
     return DVr
@@ -479,14 +474,11 @@ class advectionClass(object):
         flat_x = np.squeeze(self.x.flatten(order='F')).tolist()
         flat_u = np.squeeze(u0.flatten(order='F')).tolist()
         N_x = len(flat_x)
-        print N_x
         errortotal = 0
         analytical_solution = lambda x: np.sin(np.pi*(x - 2*np.pi*finaltime))
 
         a = flat_x[0][0:-2]
         b = flat_x[0][1:-1]
-        print b
-        print zip(a,b,range(len(a)))
 
         max_error = 0
         for x1, x2, indx in zip(a,b,range(len(a))):
@@ -508,10 +500,9 @@ class advectionClass(object):
         u0 = self.Advec1D(finaltime)
         analytical_solution = lambda x: np.sin(np.pi*(x - 2*np.pi*finaltime))
         anasolution = analytical_solution(self.x)
-        print u0-anasolution
+
         error = np.abs(np.square(u0-anasolution))
 
-        print error
         errortotal = 0
         errortotal = gaussian_quad_rule(self.x, error, self.w, self.N)
 
