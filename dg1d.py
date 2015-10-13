@@ -81,9 +81,7 @@ def RGKT_coeffs():
 
 def BuildMaps1D(K, Np, Nfaces, Nfp, Fmask, EToE, EToF, x, NODETOL):
     """ Connectivity and boundary tables for nodes given in the K #
-    #% of elements, each with N+1 degrees of freedom.
-    #Globals1D;
-    #% number volume nodes consecutively
+    #of elements, each with N+1 degrees of freedom
     """
     nodeids = np.reshape(range(0,K*Np), (Np, K), order='F')
     vmapM = np.zeros([Nfp, Nfaces, K])
@@ -216,8 +214,8 @@ def GradVandermonde1D(N,r):
 
 def GradJacobiP(r, alpha, beta, N):
     """ Evaluate the derivative of the Jacobi polynomial of type
-    % (alpha,beta)>-1, at points r for order N and returns
-    % dP[1:length(r))] """
+    (alpha,beta)>-1, at points r for order N and returns
+    dP[1:length(r))] """
     
     dP = np.zeros([len(r), 1])
     if(N == 0):
@@ -350,7 +348,6 @@ def JacobiP(x,alpha,beta,N):
     for i in range(0,N-1):
         h1 = 2*(i+1)+alpha+beta
         anew = 2./float(h1+2)*np.sqrt( ((i+1)+1)*(i+1+1+alpha + beta)*(i+1+1+alpha) * (i+1+1+beta)/float(h1+1)/float(h1+3))
-        #print aold
         bnew = - (alpha**2-beta**2)/float(h1)/float(h1+2)
         temporary= np.multiply((np.transpose(xp)-bnew),PL[i+1,:])
         PL[i+2,:] = 1/float(anew)*( -aold*PL[i,:] + temporary )
@@ -376,8 +373,6 @@ class advectionClass(object):
         tempb = [self.VX[int(b)] for b in self.vb]
         self.x = np.dot(np.ones([self.N + 1,1]) , np.matrix(tempa)) + \
             0.5*np.dot(self.r+1,np.matrix(tempb)-np.matrix(tempa))
-        print self.r
-        print self.x
         self.NODETOL = 1e-10
 
         self.V = Vandermonde1D(N, self.r)
@@ -386,8 +381,8 @@ class advectionClass(object):
 
         self.rx, self.J = GeometricFactors1D(self.x, self.Dr)
 
-        fmask1 = [indx for indx, val in enumerate(np.abs(self.r+1)) if val < self.NODETOL] # ]np.where( np.abs(self.r + 1) < self.NODETOL)
-        fmask2 = [indx for indx, val in enumerate(np.abs(self.r-1)) if val < self.NODETOL] #np.where( np.abs(self.r - 1) < self.NODETOL)
+        fmask1 = [indx for indx, val in enumerate(np.abs(self.r+1)) if val < self.NODETOL]
+        fmask2 = [indx for indx, val in enumerate(np.abs(self.r-1)) if val < self.NODETOL]
         self.Fmask = [fmask1, fmask2]
 
         self.LIFT = Lift1D(self.V, self.Np, self.Nfaces, self.Nfp)
@@ -426,48 +421,32 @@ class advectionClass(object):
         for indx in self.vmapP:
             tempu_p.append(flatu[0,indx])
 
-        du = du.flatten(order='F')
+        du = du.flatten(order='F') #hacky way to access the right elements
         du[:] = np.multiply(np.array(tempu_m) - np.array(tempu_p),(a*self.nx.flatten(order='F') - (1-alpha)*abs(a*self.nx.flatten(order='F')))/2.)
-        #print du
-        #uin = -np.sin(a*np.pi*time)
-        #uin = 2
         uin = self.conditions.bc(a,time)
-        print flatu
         du[self.mapI] = np.dot(u[self.vmapI,0]-uin,(a*self.nx[self.mapI,0])/2.)
         du[self.mapI] = np.dot(u[self.vmapI,0]-flatu[0,self.vmapO],a*self.nx[self.mapI,0]/2.)
 
-        #du[self.mapI] = np.dot(u[self.vmapI,0],(a*self.nx[self.mapI,0])/2.)
-        #du[self.mapO] = du[self.mapI]
         flatn = np.squeeze(self.nx.flatten(order='F'))
-        print flatn
-        print self.nx[self.mapI,0]
-        print self.nx
         du[self.mapO] = np.dot(flatu[0,self.vmapO]-u[self.vmapI,0],(a*flatn[self.mapO])/2.)
-        print self.mapI
-        print self.mapO
-        #print du
-        #du[self.mapI] = np.multiply(u[-1] - u[1]),a*self.nx.flatten(order='F') - ((1-alpha)*abs(a*self.nx.flatten(order='F')))/2.)
 
         du2 = np.reshape(du, [self.Nfp*self.Nfaces,self.K], order='F')
         rhsu = -a*np.multiply(self.rx,np.dot(self.Dr , u)) + np.dot(self.LIFT,np.multiply(self.Fscale,np.array(du2)))
         return rhsu
 
-    def Advec1D(self, FinalTime):
+    def Advec1D(self, FinalTime, movie=0):
         """ Integrate 1D advection until FinalTime starting with
         initial the condition, u """
 
         time = 0
        
-        #u0 = InitialCondition(self.x).get_riemann()
         u0 = self.conditions.ic()
         #Runge-Kutta residual storage
         resu = np.zeros([self.Np, self.K])
         # compute time step size
         xmin = min(abs(self.x[0,:]-self.x[1,:]))
         CFL = 0.5
-
-        dt = CFL/(2*np.pi)*np.transpose(xmin)[0][0]
-        
+        dt = CFL/(2*np.pi)*np.transpose(xmin)[0][0]     
         dt = .5*dt
         
         Nsteps = np.ceil(FinalTime/float(dt))
@@ -488,11 +467,9 @@ class advectionClass(object):
             times.append(time)
             time = time+dt
             frames.append(u0.flatten()[0])
-            #break
 
-        #return lol
-
-        mov.make_movie(frames, self.x.flatten()[0], times, "dg_pulse_"+str(self.N))
+        if movie:
+            mov.make_movie(frames, self.x.flatten()[0], times, "dg_pulse_"+str(self.N))
         return u0
 
     def get_l2_error(self,finaltime):
@@ -540,8 +517,6 @@ class advectionClass(object):
 
         return np.sqrt(errortotal)
 
-
-
 def error(analytical_solution, approx_solution, x):
     error_e = np.abs(analytical_solution(x)-approx_solution)
     return error_e
@@ -584,7 +559,7 @@ def run(order, totaltime=0.5, xintervals=10):
     N = order #order of basis polynomials
     eq = advectionClass(N, xintervals)
     finaltime=totaltime
-    u = eq.Advec1D(finaltime)
+    u = eq.Advec1D(finaltime, movie=1)
 
 if __name__ == '__main__':
     run(int(sys.argv[1]))
