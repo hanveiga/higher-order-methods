@@ -453,18 +453,19 @@ class advectionClass(object):
         times = []
         step = 0
         for tstep in range(0, int(Nsteps)):
-            for INTRK in range(0,5):
-                # Runge kutta time integration 4 stage 4th order
-                timelocal = time + self.rgkt['rk4c'][INTRK]*dt
-                rhsu = self.AdvecRHS1D(u0, timelocal, a)
-                resu = self.rgkt['rk4a'][INTRK]*resu + dt*rhsu
-                u0 = u0 + self.rgkt['rk4b'][INTRK]*resu
+            #for INTRK in range(0,5):
+            #    # Runge kutta time integration 4 stage 4th order
+            #    timelocal = time + self.rgkt['rk4c'][INTRK]*dt
+            #    rhsu = self.AdvecRHS1D(u0, timelocal, a)
+            #    resu = self.rgkt['rk4a'][INTRK]*resu + dt*rhsu
+            #    u0 = u0 + self.rgkt['rk4b'][INTRK]*resu
+            u0=self.SSP(u0, time,a,dt)
             times.append(time)
             time = time+dt
             frames.append(u0.flatten()[0])
 
         if movie:
-            mov.make_movie(frames, self.x.flatten()[0], times, "dg_pulse_"+str(self.N))
+            mov.make_movie(frames, self.x.flatten()[0], times, "dg_pulse_ssp"+str(self.N))
         return u0
 
     def get_l2_error(self,finaltime):
@@ -507,6 +508,27 @@ class advectionClass(object):
         errortotal = gaussian_quad_rule(self.x, error, self.w, self.N)
 
         return np.sqrt(errortotal)
+
+
+    def SSP(self,u, tn, a, dt):
+        #if stage == 0:
+        v0 = np.zeros(u.shape)
+        v1 = np.zeros(u.shape)
+        v2 = np.zeros(u.shape)
+        v3 = np.zeros(u.shape)
+        v4 = np.zeros(u.shape)
+        
+        v0 = u + 0.39175222700392*dt*self.AdvecRHS1D(u,tn,a)
+        #elif stage == 1:
+        v1 = 0.44437049406734*u + 0.55562950593266*v0+ 0.36841059262959*dt*self.AdvecRHS1D(v0, tn+0.39175222700392*dt,a)
+        #elif stage ==2:
+        v2 =  0.62010185138540*u + 0.37989814861460*v1 +0.25189177424738*dt*self.AdvecRHS1D(v1, tn + 0.58607968896780*dt,a)
+        #elif stage ==3:
+        v3 = 0.17807995410773*u + 0.82192004589227*v2+0.54497475021237*dt*self.AdvecRHS1D(v2, tn + 0.47454236302687*dt,a)
+        #elif stage ==4:
+        v4 = 0.00683325884039*u + 0.51723167208978*v1+0.12759831133288*v2 + 0.34833675773694*v3 \
+                +0.08460416338212*dt*self.AdvecRHS1D(v2, tn + 0.47454236302687*dt,a) +0.22600748319395*dt*self.AdvecRHS1D(v3, tn + 0.93501063100924*dt,a)
+        return v4
 
 def error(analytical_solution, approx_solution, x):
     error_e = np.abs(analytical_solution(x)-approx_solution)
